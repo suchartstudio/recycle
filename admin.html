@@ -5,118 +5,270 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Admin - จัดการสถานีคัดแยกขยะ</title>
     
-    <!-- ดึงไฟล์ CSS ที่เราออกแบบไว้มาใช้ -->
     <link rel="stylesheet" href="style.css">
-    
-    <!-- Leaflet CSS & JS สำหรับแผนที่ -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-    
-    <!-- QRCode.js สำหรับสร้างคิวอาร์โค้ด -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <!-- เพิ่ม Style เฉพาะหน้า Admin สำหรับแสดงรายการข้อมูล -->
+    <style>
+        .station-item {
+            background-color: var(--light-bg);
+            padding: 15px;
+            border: 2px solid #E0E0E0;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+        .station-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .station-item h4 {
+            color: var(--dark-green);
+            font-size: 20px;
+        }
+        .action-btns {
+            display: flex;
+            gap: 10px;
+        }
+        .action-btns button {
+            margin-top: 0;
+            padding: 10px;
+            font-size: 16px;
+            border: 2px solid var(--text-dark);
+        }
+        .btn-edit { background-color: var(--dark-yellow); }
+        .btn-delete { background-color: #FF4D4D; color: white; border-color: #CC0000; }
+        .btn-cancel { background-color: #ccc; border-color: #999; margin-top: 10px; display: none; }
+    </style>
 </head>
 <body>
     <header>
         <h2>⚙️ ระบบหลังบ้าน (Admin)</h2>
-        <p style="color: var(--white); font-size: 16px; margin-top: 5px;">สร้างจุดคัดแยกและ QR Code</p>
+        <p style="color: var(--white); font-size: 16px; margin-top: 5px;">จัดการจุดคัดแยกและ QR Code</p>
     </header>
     
     <div class="container">
-        <!-- ฟอร์มกรอกชื่อ ปรับให้เต็มจอและพิมพ์ง่ายขึ้น -->
+        <!-- ฟอร์มเพิ่ม/แก้ไข ข้อมูล -->
         <div class="form-group" style="display: block; text-align: left;">
-            <label style="margin-bottom: 10px; display: block;">ชื่อจุดคัดแยกขยะ</label>
+            <label style="margin-bottom: 10px; display: block;" id="formTitle">📍 เพิ่มจุดคัดแยกใหม่</label>
             <input type="text" id="stationName" placeholder="เช่น ชุมชนหน้ามอ, ตลาดสด..." style="width: 100%; text-align: left;">
         </div>
         
-        <p style="margin-bottom: 10px; font-weight: 700; font-size: 18px; color: var(--dark-green);">📍 คลิกบนแผนที่เพื่อปักหมุด</p>
+        <p style="margin-bottom: 10px; font-weight: 700; font-size: 16px; color: var(--dark-green);">คลิกบนแผนที่เพื่อปักหมุดตำแหน่ง</p>
         
-        <!-- แผนที่สำหรับเลือกพิกัด -->
         <div id="map" style="height: 350px; width: 100%; border: 3px solid var(--dark-green); border-radius: 8px; margin-bottom: 15px;"></div>
         
-        <!-- ซ่อนค่าพิกัดไว้ส่งไป Firebase -->
         <input type="hidden" id="lat">
         <input type="hidden" id="lng">
         
+        <!-- ปุ่มดำเนินการ -->
         <button id="saveBtn">💾 บันทึก & สร้าง QR Code</button>
+        <button id="cancelEditBtn" class="btn-cancel">❌ ยกเลิกการแก้ไข (เพิ่มจุดใหม่)</button>
         
-        <!-- พื้นที่แสดง QR Code ที่สร้างเสร็จ -->
+        <!-- พื้นที่แสดง QR Code -->
         <div style="margin-top: 30px; display: flex; flex-direction: column; align-items: center;">
             <div id="qrcode"></div>
             <p id="qrLink" style="text-align: center; margin-top: 15px; font-size: 16px; word-break: break-all; color: var(--text-dark); font-weight: 600;"></p>
         </div>
+
+        <hr style="margin: 30px 0; border: 1px solid #ddd;">
+
+        <!-- ส่วนแสดงรายการสถานีทั้งหมด -->
+        <h3 style="margin-bottom: 15px; text-align: center;">📋 รายการจุดคัดแยกทั้งหมด</h3>
+        <div id="stationList">
+            <p style="text-align: center;">กำลังโหลดข้อมูล...</p>
+        </div>
     </div>
 
     <script type="module">
-        import { db, collection, addDoc } from './firebase-config.js';
+        // นำเข้าคำสั่ง updateDoc และ deleteDoc จาก Firestore เพิ่มเติม
+        import { db, collection, addDoc, getDocs, doc } from './firebase-config.js';
+        import { updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // ตั้งค่าแผนที่เริ่มต้น (ปัจจุบันตั้งไว้ที่ขอนแก่น คุณสามารถแก้พิกัดได้)
+        let currentEditId = null; // ตัวแปรเก็บ ID ที่กำลังแก้ไข
+        
         const map = L.map('map').setView([16.4322, 102.8236], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-        let marker;
+        
+        let selectedMarker; // หมุดสีน้ำเงินเวลาเราเลือก/แก้ไข
+        let existingMarkersLayer = L.layerGroup().addTo(map); // เลเยอร์สำหรับเก็บหมุดสถานีที่มีอยู่แล้ว
 
-        // เมื่อคลิกบนแผนที่ ให้สร้างหมุดและเก็บค่าพิกัด
+        // เมื่อคลิกแผนที่ ให้ขยับหมุด
         map.on('click', function(e) {
-            if(marker) map.removeLayer(marker);
-            marker = L.marker(e.latlng).addTo(map);
+            if(selectedMarker) map.removeLayer(selectedMarker);
+            selectedMarker = L.marker(e.latlng).addTo(map);
             document.getElementById('lat').value = e.latlng.lat;
             document.getElementById('lng').value = e.latlng.lng;
         });
 
-        // เมื่อกดปุ่มบันทึก
+        // ==========================================
+        // 1. ฟังก์ชันโหลดข้อมูลสถานีทั้งหมดมาแสดงผล
+        // ==========================================
+        async function loadStations() {
+            const listDiv = document.getElementById('stationList');
+            existingMarkersLayer.clearLayers(); // ล้างหมุดเดิมบนแผนที่
+            
+            try {
+                const querySnapshot = await getDocs(collection(db, "stations"));
+                listDiv.innerHTML = '';
+                
+                if(querySnapshot.empty) {
+                    listDiv.innerHTML = '<p style="text-align: center;">ยังไม่มีจุดคัดแยกในระบบ</p>';
+                    return;
+                }
+                
+                querySnapshot.forEach((documentSnap) => {
+                    const data = documentSnap.data();
+                    const id = documentSnap.id;
+                    
+                    // ปักหมุดสถานีเดิมบนแผนที่
+                    L.marker([data.lat, data.lng])
+                        .bindPopup(`<b>${data.name}</b>`)
+                        .addTo(existingMarkersLayer);
+
+                    // สร้างการ์ดแสดงรายการ
+                    const item = document.createElement('div');
+                    item.className = 'station-item';
+                    item.innerHTML = `
+                        <div class="station-item-header">
+                            <h4>📍 ${data.name}</h4>
+                        </div>
+                        <p style="font-size: 14px; color: #555; margin-bottom: 10px;">
+                            พิกัด: ${data.lat.toFixed(5)}, ${data.lng.toFixed(5)}
+                        </p>
+                        <div class="action-btns">
+                            <button class="btn-edit" onclick="window.editStation('${id}', '${data.name}', ${data.lat}, ${data.lng})">✏️ แก้ไข</button>
+                            <button class="btn-delete" onclick="window.deleteStation('${id}')">🗑️ ลบ</button>
+                        </div>
+                    `;
+                    listDiv.appendChild(item);
+                });
+            } catch(e) {
+                console.error("Error loading stations: ", e);
+                listDiv.innerHTML = '<p style="color:red; text-align: center;">โหลดข้อมูลล้มเหลว</p>';
+            }
+        }
+
+        // ==========================================
+        // 2. ฟังก์ชันสร้าง QR Code
+        // ==========================================
+        function generateQR(stationId) {
+            const baseUrl = window.location.href.split('?')[0].replace('admin.html', '');
+            const userUrl = `${baseUrl}index.html?id=${stationId}`;
+            
+            document.getElementById('qrcode').innerHTML = "";
+            new QRCode(document.getElementById("qrcode"), {
+                text: userUrl,
+                width: 250, height: 250,
+                colorDark : "#0D2118", colorLight : "#FFFFFF"
+            });
+            document.getElementById('qrLink').innerHTML = `<b>ลิงก์สำหรับสแกน:</b><br><a href="${userUrl}" target="_blank" style="color:var(--dark-green);">${userUrl}</a>`;
+        }
+
+        // ==========================================
+        // 3. จัดการฟอร์มบันทึก (ทั้งเพิ่มใหม่ และแก้ไข)
+        // ==========================================
         document.getElementById('saveBtn').addEventListener('click', async () => {
             const name = document.getElementById('stationName').value;
             const lat = parseFloat(document.getElementById('lat').value);
             const lng = parseFloat(document.getElementById('lng').value);
 
-            // เช็คว่ากรอกข้อมูลครบไหม
-            if(!name || !lat) {
-                return alert("⚠️ กรุณากรอกชื่อสถานี และคลิกปักหมุดบนแผนที่ก่อนครับ");
-            }
+            if(!name || !lat) return alert("⚠️ กรุณากรอกชื่อและคลิกปักหมุดบนแผนที่");
 
             const btn = document.getElementById('saveBtn');
-            btn.innerText = "⏳ กำลังสร้าง...";
+            btn.innerText = "⏳ กำลังบันทึก...";
             btn.disabled = true;
 
             try {
-                // บันทึกข้อมูลลง Firestore (Collection: stations)
-                const docRef = await addDoc(collection(db, "stations"), {
-                    name: name,
-                    lat: lat,
-                    lng: lng,
-                    createdAt: new Date()
-                });
-
-                // สร้าง URL ชี้ไปที่ index.html (หน้าสแกน QR หน้าแรกสุด)
-                const baseUrl = window.location.href.split('?')[0].replace('admin.html', '');
-                const userUrl = `${baseUrl}index.html?id=${docRef.id}`;
+                if (currentEditId) {
+                    // กรณี: อัพเดทข้อมูลเดิม
+                    const stationRef = doc(db, "stations", currentEditId);
+                    await updateDoc(stationRef, { name: name, lat: lat, lng: lng });
+                    alert("✅ อัพเดทข้อมูลสำเร็จ!");
+                    generateQR(currentEditId);
+                } else {
+                    // กรณี: สร้างใหม่
+                    const docRef = await addDoc(collection(db, "stations"), {
+                        name: name, lat: lat, lng: lng, createdAt: new Date()
+                    });
+                    alert("✅ สร้างจุดคัดแยกสำเร็จ!");
+                    generateQR(docRef.id);
+                }
                 
-                // สร้างภาพ QR Code
-                document.getElementById('qrcode').innerHTML = "";
-                new QRCode(document.getElementById("qrcode"), {
-                    text: userUrl,
-                    width: 250, // ขนาด QR ใหญ่ขึ้น สแกนง่าย
-                    height: 250,
-                    colorDark : "#0D2118", // สีเขียวเข้มมากๆ ให้อ่านง่าย
-                    colorLight : "#FFFFFF"
-                });
-                
-                // แสดงข้อความ Link ให้ Admin เผื่อต้องการก๊อปปี้
-                document.getElementById('qrLink').innerHTML = `<b>ลิงก์สำหรับสแกน:</b><br><a href="${userUrl}" target="_blank" style="color:var(--dark-green);">${userUrl}</a>`;
-                
-                // คืนสถานะปุ่มเผื่อต้องการสร้างจุดต่อไป
-                btn.innerText = "✅ สร้างสำเร็จ (สร้างเพิ่มคลิกที่นี่)";
-                btn.disabled = false;
-                
-                // เลื่อนหน้าจอลงมาให้เห็น QR Code อัตโนมัติ
-                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-
+                resetForm();
+                loadStations(); // โหลดรายการใหม่
             } catch (e) {
-                console.error("Error adding document: ", e);
-                alert("❌ เกิดข้อผิดพลาดในการบันทึก กรุณาลองใหม่");
-                btn.innerText = "💾 บันทึก & สร้าง QR Code";
+                console.error("Error saving document: ", e);
+                alert("❌ เกิดข้อผิดพลาด กรุณาลองใหม่");
+            } finally {
                 btn.disabled = false;
             }
         });
+
+        // ==========================================
+        // 4. ฟังก์ชันสำหรับการ แก้ไข และ ลบ (Global scope ให้ HTML เรียกใช้ได้)
+        // ==========================================
+        window.editStation = (id, name, lat, lng) => {
+            currentEditId = id;
+            document.getElementById('stationName').value = name;
+            document.getElementById('lat').value = lat;
+            document.getElementById('lng').value = lng;
+            
+            document.getElementById('formTitle').innerText = `✏️ กำลังแก้ไข: ${name}`;
+            document.getElementById('saveBtn').innerText = "💾 อัพเดทข้อมูล & ดู QR Code";
+            document.getElementById('cancelEditBtn').style.display = "block";
+            
+            // ขยับแผนที่และวางหมุด
+            map.setView([lat, lng], 16);
+            if(selectedMarker) map.removeLayer(selectedMarker);
+            selectedMarker = L.marker([lat, lng]).addTo(map);
+
+            // ดึง QR Code เดิมมาแสดง
+            generateQR(id);
+            
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
+        window.deleteStation = async (id) => {
+            if(confirm("⚠️ คุณแน่ใจหรือไม่ว่าจะลบจุดนี้?\n(ข้อมูลการคัดแยกเก่าที่อ้างอิงจุดนี้อาจได้รับผลกระทบ)")) {
+                try {
+                    await deleteDoc(doc(db, "stations", id));
+                    alert("🗑️ ลบข้อมูลสำเร็จ");
+                    if(currentEditId === id) resetForm();
+                    loadStations();
+                } catch(e) {
+                    console.error("Error deleting: ", e);
+                    alert("เกิดข้อผิดพลาดในการลบ");
+                }
+            }
+        };
+
+        // ฟังก์ชันล้างค่าฟอร์มกลับสู่สถานะ 'เพิ่มข้อมูลใหม่'
+        function resetForm() {
+            currentEditId = null;
+            document.getElementById('stationName').value = "";
+            document.getElementById('lat').value = "";
+            document.getElementById('lng').value = "";
+            document.getElementById('formTitle').innerText = "📍 เพิ่มจุดคัดแยกใหม่";
+            document.getElementById('saveBtn').innerText = "💾 บันทึก & สร้าง QR Code";
+            document.getElementById('cancelEditBtn').style.display = "none";
+            if(selectedMarker) map.removeLayer(selectedMarker);
+        }
+
+        document.getElementById('cancelEditBtn').addEventListener('click', () => {
+            resetForm();
+            document.getElementById('qrcode').innerHTML = "";
+            document.getElementById('qrLink').innerHTML = "";
+        });
+
+        // โหลดข้อมูลครั้งแรกเมื่อเปิดหน้า
+        loadStations();
+
     </script>
 </body>
 </html>
