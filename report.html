@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>แผนที่คาร์บอน - Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+</head>
+<body style="display: flex; flex-direction: column; height: 100vh; overflow: hidden;">
+    <header style="padding: 15px;">
+        <h2 style="font-size: 22px;">คาร์บอนที่ลดได้ทั้งหมด</h2>
+        <h1 style="color:var(--white); margin-top: 5px; font-size: 32px;" id="totalCityCarbon">0.00 kgCO2e</h1>
+    </header>
+    
+    <div id="map" style="flex: 1; width: 100%; border: none;"></div>
+    
+    <div style="padding: 15px; background-color: var(--white); box-shadow: 0 -4px 10px rgba(0,0,0,0.1);">
+        <button onclick="window.location.href='index.html'" style="margin-top: 0;">🏠 กลับหน้าสแกนขยะ</button>
+    </div>
+
+    <script type="module">
+        import { db, collection, getDocs } from './firebase-config.js';
+
+        const map = L.map('map', { zoomControl: false }).setView([16.4322, 102.8236], 13); 
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+        async function loadDashboard() {
+            let totalCarbon = 0;
+            const heatData = [];
+            const stationMap = {};
+
+            const stationsSnapshot = await getDocs(collection(db, "stations"));
+            stationsSnapshot.forEach(doc => {
+                const data = doc.data();
+                stationMap[doc.id] = { lat: data.lat, lng: data.lng, name: data.name, carbon: 0 };
+            });
+
+            const logsSnapshot = await getDocs(collection(db, "logs"));
+            logsSnapshot.forEach(doc => {
+                const data = doc.data();
+                totalCarbon += data.carbonSaved;
+                if(stationMap[data.stationId]) {
+                    stationMap[data.stationId].carbon += data.carbonSaved;
+                    heatData.push([
+                        stationMap[data.stationId].lat, 
+                        stationMap[data.stationId].lng, 
+                        data.carbonSaved * 10 
+                    ]);
+                }
+            });
+
+            document.getElementById('totalCityCarbon').innerText = `${totalCarbon.toFixed(2)} kgCO2e`;
+
+            for (const key in stationMap) {
+                const st = stationMap[key];
+                L.marker([st.lat, st.lng]).addTo(map)
+                 .bindPopup(`<b style="font-size:16px">${st.name}</b><br>ลดคาร์บอน: ${st.carbon.toFixed(2)} kg`);
+            }
+
+            L.heatLayer(heatData, {
+                radius: 45,
+                blur: 25,
+                maxZoom: 15,
+                gradient: { 0.3: '#4caf50', 0.6: '#1b4332', 1.0: '#fca311' }
+            }).addTo(map);
+        }
+
+        loadDashboard();
+    </script>
+</body>
+</html>
