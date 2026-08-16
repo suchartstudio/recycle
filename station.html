@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>บันทึกการคัดแยกขยะ</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h2 id="stationTitle">กำลังโหลด...</h2>
+        <p style="font-size: 14px; margin-top: 5px;">รหัสเครื่องของคุณ: <span id="userDeviceId" style="color:var(--white)"></span></p>
+    </header>
+    <div class="container">
+        <p style="margin-bottom: 15px; font-weight: 600;">ระบุจำนวนชิ้น/ขวด/กระป๋อง:</p>
+        
+        <div class="form-group">
+            <label>🍾 ขวดแก้ว</label>
+            <input type="number" id="glass" value="0" min="0">
+        </div>
+        <div class="form-group">
+            <label>🚰 ขวดพลาสติก</label>
+            <input type="number" id="plastic" value="0" min="0">
+        </div>
+        <div class="form-group">
+            <label>🥫 กระป๋องอลูมิเนียม</label>
+            <input type="number" id="alu" value="0" min="0">
+        </div>
+        <div class="form-group">
+            <label>🔋 ถ่านไฟฉาย</label>
+            <input type="number" id="battery" value="0" min="0">
+        </div>
+        <div class="form-group">
+            <label>💡 หลอดไฟ</label>
+            <input type="number" id="bulb" value="0" min="0">
+        </div>
+
+        <button id="calcBtn">คำนวณ & บันทึกข้อมูล</button>
+
+        <div class="result-card" id="resultCard" style="display: none;">
+            <h3>คุณช่วยลดคาร์บอนไปแล้ว</h3>
+            <span id="carbonScore">0</span> kgCO2e<br><br>
+            <p>คะแนนสะสมของเมืองเพิ่มขึ้นแล้ว ขอบคุณครับ!</p>
+        </div>
+    </div>
+
+    <script type="module">
+        import { db, collection, addDoc } from './firebase-config.js';
+
+        // 1. ตรวจสอบหรือสร้าง Device ID แบบไม่ระบุตัวตน
+        let deviceId = localStorage.getItem('eco_device_id');
+        if (!deviceId) {
+            deviceId = 'USR-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+            localStorage.setItem('eco_device_id', deviceId);
+        }
+        document.getElementById('userDeviceId').innerText = deviceId;
+
+        // 2. ดึง Station ID จาก URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const stationId = urlParams.get('id') || 'Unknown Station';
+        document.getElementById('stationTitle').innerText = 'สถานีคัดแยก';
+
+        // 3. ค่าสัมประสิทธิ์ลดคาร์บอน (สมมติ: kgCO2e ต่อชิ้น)
+        const factors = {
+            glass: 0.15,
+            plastic: 0.08,
+            alu: 0.20,
+            battery: 0.50,
+            bulb: 0.40
+        };
+
+        document.getElementById('calcBtn').addEventListener('click', async () => {
+            const glass = parseInt(document.getElementById('glass').value) || 0;
+            const plastic = parseInt(document.getElementById('plastic').value) || 0;
+            const alu = parseInt(document.getElementById('alu').value) || 0;
+            const battery = parseInt(document.getElementById('battery').value) || 0;
+            const bulb = parseInt(document.getElementById('bulb').value) || 0;
+
+            const totalCarbon = (glass * factors.glass) + (plastic * factors.plastic) + 
+                                (alu * factors.alu) + (battery * factors.battery) + (bulb * factors.bulb);
+
+            if(totalCarbon === 0) return alert('กรุณาระบุจำนวนขยะอย่างน้อย 1 ชิ้น');
+
+            document.getElementById('resultCard').style.display = 'block';
+            document.getElementById('carbonScore').innerText = totalCarbon.toFixed(2);
+
+            try {
+                // บันทึกประวัติลงเครื่อง
+                let history = JSON.parse(localStorage.getItem('eco_history') || '[]');
+                history.push({ date: new Date(), carbon: totalCarbon });
+                localStorage.setItem('eco_history', JSON.stringify(history));
+
+                // ส่งเข้า Firebase
+                await addDoc(collection(db, "logs"), {
+                    stationId: stationId,
+                    deviceId: deviceId,
+                    carbonSaved: totalCarbon,
+                    items: { glass, plastic, alu, battery, bulb },
+                    timestamp: new Date()
+                });
+            } catch (e) {
+                console.error("Error saving log: ", e);
+            }
+        });
+    </script>
+</body>
+</html>

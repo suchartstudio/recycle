@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - สถานะการคัดแยกขยะ</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+</head>
+<body>
+    <header>
+        <h2>ภาพรวมคาร์บอนของเมือง</h2>
+        <h1 style="color:var(--white); margin-top: 10px;" id="totalCityCarbon">0.00 kgCO2e</h1>
+    </header>
+    <div class="container" style="max-width: 100%; padding: 0;">
+        <!-- แสดงแผนที่เต็มความกว้างในส่วนนี้ -->
+        <div id="map" style="height: calc(100vh - 120px); border: none; border-radius: 0;"></div>
+    </div>
+
+    <script type="module">
+        import { db, collection, getDocs } from './firebase-config.js';
+
+        // สร้างแผนที่
+        const map = L.map('map').setView([16.4322, 102.8236], 13); // ศูนย์กลาง
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+        async function loadDashboard() {
+            let totalCarbon = 0;
+            const heatData = [];
+            const stationMap = {};
+
+            // ดึงข้อมูลสถานี
+            const stationsSnapshot = await getDocs(collection(db, "stations"));
+            stationsSnapshot.forEach(doc => {
+                const data = doc.data();
+                stationMap[doc.id] = { lat: data.lat, lng: data.lng, name: data.name, carbon: 0 };
+                // ใส่ป้ายกำกับ Marker
+                L.marker([data.lat, data.lng]).addTo(map)
+                 .bindPopup(`<b>${data.name}</b><br>สถานีคัดแยกขยะ`);
+            });
+
+            // ดึงข้อมูลการประเมิน (Logs)
+            const logsSnapshot = await getDocs(collection(db, "logs"));
+            logsSnapshot.forEach(doc => {
+                const data = doc.data();
+                totalCarbon += data.carbonSaved;
+                
+                if(stationMap[data.stationId]) {
+                    stationMap[data.stationId].carbon += data.carbonSaved;
+                    // สะสมค่าความเข้มลงใน Heatmap array [lat, lng, intensity]
+                    heatData.push([
+                        stationMap[data.stationId].lat, 
+                        stationMap[data.stationId].lng, 
+                        data.carbonSaved * 10 // คูณเพิ่มความเข้ม (ปรับค่าได้ตามต้องการ)
+                    ]);
+                }
+            });
+
+            document.getElementById('totalCityCarbon').innerText = `${totalCarbon.toFixed(2)} kgCO2e`;
+
+            // เพิ่ม Heatmap Layer (โทนสีเขียว)
+            const heat = L.heatLayer(heatData, {
+                radius: 40,
+                blur: 25,
+                maxZoom: 15,
+                gradient: {
+                    0.2: '#c8e6c9', // เขียวอ่อน
+                    0.5: '#4caf50', // เขียวกลาง
+                    0.8: '#1b4332', // เขียวเข้ม
+                    1.0: '#fca311'  // เหลืองเข้มเป็นแกนกลางที่หนาแน่นสุด
+                }
+            }).addTo(map);
+        }
+
+        loadDashboard();
+    </script>
+</body>
+</html>

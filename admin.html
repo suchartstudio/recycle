@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - สร้างสถานีคัดแยก</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+    <header>
+        <h2>จัดการสถานีคัดแยก</h2>
+    </header>
+    <div class="container">
+        <div class="form-group">
+            <label>ชื่อจุดคัดแยก</label>
+            <input type="text" id="stationName" placeholder="เช่น ชุมชน A">
+        </div>
+        <p style="margin-bottom: 5px; font-size: 14px;">คลิกบนแผนที่เพื่อปักหมุด</p>
+        <div id="map" style="height: 300px;"></div>
+        
+        <input type="hidden" id="lat">
+        <input type="hidden" id="lng">
+        
+        <button id="saveBtn">บันทึก & สร้าง QR Code</button>
+        
+        <div id="qrcode"></div>
+        <p id="qrLink" style="text-align: center; margin-top: 10px; font-size: 12px;"></p>
+    </div>
+
+    <script type="module">
+        import { db, collection, addDoc } from './firebase-config.js';
+
+        // ตั้งค่าแผนที่เริ่มต้น
+        const map = L.map('map').setView([16.4322, 102.8236], 13); // ค่าเริ่มต้น ขอนแก่น
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        let marker;
+
+        map.on('click', function(e) {
+            if(marker) map.removeLayer(marker);
+            marker = L.marker(e.latlng).addTo(map);
+            document.getElementById('lat').value = e.latlng.lat;
+            document.getElementById('lng').value = e.latlng.lng;
+        });
+
+        document.getElementById('saveBtn').addEventListener('click', async () => {
+            const name = document.getElementById('stationName').value;
+            const lat = parseFloat(document.getElementById('lat').value);
+            const lng = parseFloat(document.getElementById('lng').value);
+
+            if(!name || !lat) return alert("กรุณากรอกชื่อและปักหมุดบนแผนที่");
+
+            try {
+                // บันทึกลง Firebase
+                const docRef = await addDoc(collection(db, "stations"), {
+                    name: name,
+                    lat: lat,
+                    lng: lng,
+                    createdAt: new Date()
+                });
+
+                // สร้าง URL สำหรับให้ผู้ใช้สแกน (สมมติว่าเป็น URL ของ GitHub Pages คุณ)
+                const baseUrl = window.location.href.replace('admin.html', '');
+                const userUrl = `${baseUrl}station.html?id=${docRef.id}`;
+                
+                document.getElementById('qrcode').innerHTML = "";
+                new QRCode(document.getElementById("qrcode"), {
+                    text: userUrl,
+                    width: 200,
+                    height: 200,
+                    colorDark : "#1B4332",
+                    colorLight : "#FFFFFF"
+                });
+                document.getElementById('qrLink').innerText = userUrl;
+                alert("สร้างจุดคัดแยกสำเร็จ!");
+
+            } catch (e) {
+                console.error("Error adding document: ", e);
+            }
+        });
+    </script>
+</body>
+</html>
