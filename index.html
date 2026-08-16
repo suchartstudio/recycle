@@ -4,11 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>บันทึกการคัดแยกขยะ</title>
-    
     <link rel="stylesheet" href="style.css">
-    
-    <!-- เพิ่มไลบรารี html5-qrcode สำหรับสแกนผ่านกล้อง -->
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 </head>
 <body>
     <header>
@@ -17,48 +13,34 @@
     </header>
     
     <div class="container">
-        <!-- ส่วนของการสแกน QR Code ผ่านหน้าเว็บ -->
-        <div id="scanSection" style="text-align: center; margin-bottom: 20px;">
-            <p style="margin-bottom: 15px; font-weight: 700; color: var(--dark-green);">คุณยังไม่ได้สแกนเลือกจุดคัดแยก</p>
-            <button id="startScanBtn" style="background-color: var(--dark-green); color: var(--white); border-color: var(--dark-green);">📷 เปิดกล้องสแกนจุดคัดแยก</button>
-            
-            <!-- กรอบแสดงกล้อง -->
-            <div id="reader" style="width: 100%; margin-top: 15px; border-radius: 8px; overflow: hidden; display: none; border: 3px solid var(--dark-green);"></div>
-            
-            <button id="stopScanBtn" style="background-color: #FF4D4D; color: white; border-color: #CC0000; display: none;">❌ ยกเลิกการสแกน</button>
+        <p style="margin-bottom: 20px; font-weight: 700; font-size: 22px; text-align: center;">ระบุจำนวน (ชิ้น)</p>
+        
+        <div class="form-group">
+            <label>🍾 ขวดแก้ว</label>
+            <input type="number" id="glass" value="0" min="0" inputmode="numeric">
+        </div>
+        <div class="form-group">
+            <label>🚰 ขวดพลาสติก</label>
+            <input type="number" id="plastic" value="0" min="0" inputmode="numeric">
+        </div>
+        <div class="form-group">
+            <label>🥫 กระป๋อง</label>
+            <input type="number" id="alu" value="0" min="0" inputmode="numeric">
+        </div>
+        <div class="form-group">
+            <label>🔋 ถ่านไฟฉาย</label>
+            <input type="number" id="battery" value="0" min="0" inputmode="numeric">
+        </div>
+        <div class="form-group">
+            <label>💡 หลอดไฟ</label>
+            <input type="number" id="bulb" value="0" min="0" inputmode="numeric">
         </div>
 
-        <!-- ส่วนของฟอร์มกรอกขยะ (จะซ่อนไว้จนกว่าจะมีรหัสสถานี) -->
-        <div id="formSection" style="display: none;">
-            <p style="margin-bottom: 20px; font-weight: 700; font-size: 22px; text-align: center;">ระบุจำนวน (ชิ้น)</p>
-            
-            <div class="form-group">
-                <label>🍾 ขวดแก้ว</label>
-                <input type="number" id="glass" value="0" min="0" inputmode="numeric">
-            </div>
-            <div class="form-group">
-                <label>🚰 ขวดพลาสติก</label>
-                <input type="number" id="plastic" value="0" min="0" inputmode="numeric">
-            </div>
-            <div class="form-group">
-                <label>🥫 กระป๋อง</label>
-                <input type="number" id="alu" value="0" min="0" inputmode="numeric">
-            </div>
-            <div class="form-group">
-                <label>🔋 ถ่านไฟฉาย</label>
-                <input type="number" id="battery" value="0" min="0" inputmode="numeric">
-            </div>
-            <div class="form-group">
-                <label>💡 หลอดไฟ</label>
-                <input type="number" id="bulb" value="0" min="0" inputmode="numeric">
-            </div>
+        <button id="calcBtn">✅ บันทึกข้อมูล</button>
 
-            <button id="calcBtn">✅ บันทึกข้อมูล</button>
-
-            <div class="result-card" id="resultCard" style="display: none;">
-                <h3>ลดคาร์บอนไปแล้ว</h3>
-                <span id="carbonScore">0</span> <br>kgCO2e
-            </div>
+        <div class="result-card" id="resultCard" style="display: none;">
+            <h3>ลดคาร์บอนไปแล้ว</h3>
+            <span id="carbonScore">0</span> <br>kgCO2e
         </div>
 
         <hr style="margin: 30px 0; border: 1px solid #ddd;">
@@ -70,7 +52,6 @@
     <script type="module">
         import { db, collection, addDoc } from './firebase-config.js';
 
-        // จัดการ Device ID
         let deviceId = localStorage.getItem('eco_device_id');
         if (!deviceId) {
             deviceId = 'USR-' + Math.random().toString(36).substr(2, 6).toUpperCase();
@@ -78,74 +59,22 @@
         }
         document.getElementById('userDeviceId').innerText = deviceId;
 
-        // ตรวจสอบ URL ว่ามี id สถานีหรือไม่
         const urlParams = new URLSearchParams(window.location.search);
         const stationId = urlParams.get('id');
         
-        const scanSection = document.getElementById('scanSection');
-        const formSection = document.getElementById('formSection');
-
         if (stationId) {
-            // ถ้ามีรหัสสถานี ให้เปิดฟอร์ม ซ่อนปุ่มสแกน
             document.getElementById('stationTitle').innerText = '📍 บันทึกขยะเข้าจุดคัดแยก';
-            scanSection.style.display = 'none';
-            formSection.style.display = 'block';
         } else {
-            // ถ้าไม่มี ให้โชว์ปุ่มสแกน ซ่อนฟอร์ม
             document.getElementById('stationTitle').innerText = '⚠️ ยังไม่ได้สแกนสถานี';
-            scanSection.style.display = 'block';
-            formSection.style.display = 'none';
         }
 
-        // ==========================================
-        // ระบบสแกน QR Code ด้วยกล้องมือถือ
-        // ==========================================
-        const html5QrCode = new Html5Qrcode("reader");
-        const startScanBtn = document.getElementById('startScanBtn');
-        const stopScanBtn = document.getElementById('stopScanBtn');
-
-        startScanBtn.addEventListener('click', () => {
-            document.getElementById('reader').style.display = "block";
-            startScanBtn.style.display = "none";
-            stopScanBtn.style.display = "block";
-
-            html5QrCode.start(
-                { facingMode: "environment" }, // บังคับใช้กล้องหลัง
-                {
-                    fps: 10,
-                    qrbox: { width: 250, height: 250 } // ขนาดกรอบสแกน
-                },
-                (decodedText, decodedResult) => {
-                    // สแกนสำเร็จ -> ปิดกล้อง แล้วพุ่งไปที่ URL ที่สแกนได้
-                    html5QrCode.stop().then(() => {
-                        window.location.href = decodedText;
-                    }).catch(err => console.log(err));
-                },
-                (errorMessage) => {
-                    // กรณีหา QR ไม่เจอในเฟรม (ปล่อยผ่านไป ไม่ต้องโชว์ error)
-                }
-            ).catch((err) => {
-                alert("❌ ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตให้บราวเซอร์เข้าถึงกล้องครับ");
-                document.getElementById('reader').style.display = "none";
-                startScanBtn.style.display = "block";
-                stopScanBtn.style.display = "none";
-            });
-        });
-
-        stopScanBtn.addEventListener('click', () => {
-            html5QrCode.stop().then(() => {
-                document.getElementById('reader').style.display = "none";
-                startScanBtn.style.display = "block";
-                stopScanBtn.style.display = "none";
-            }).catch(err => console.log(err));
-        });
-
-        // ==========================================
-        // ระบบคำนวณและบันทึกข้อมูล
-        // ==========================================
         const factors = { glass: 0.15, plastic: 0.08, alu: 0.20, battery: 0.50, bulb: 0.40 };
 
         document.getElementById('calcBtn').addEventListener('click', async () => {
+            if (!stationId) {
+                return alert('กรุณาสแกน QR Code ที่จุดคัดแยกก่อนบันทึกข้อมูลครับ');
+            }
+
             const glass = parseInt(document.getElementById('glass').value) || 0;
             const plastic = parseInt(document.getElementById('plastic').value) || 0;
             const alu = parseInt(document.getElementById('alu').value) || 0;
@@ -171,7 +100,7 @@
 
                 document.getElementById('resultCard').style.display = 'block';
                 document.getElementById('carbonScore').innerText = totalCarbon.toFixed(2);
-                document.getElementById('calcBtn').style.display = 'none'; 
+                document.getElementById('calcBtn').style.display = 'none'; // ซ่อนปุ่มเมื่อบันทึกเสร็จ
             } catch (e) {
                 console.error(e);
                 alert('เกิดข้อผิดพลาด กรุณาลองใหม่');
@@ -180,7 +109,7 @@
             }
         });
 
-        // ทำให้พิมพ์เลขง่ายขึ้นเวลาคลิกช่อง
+        // ทำให้ Focus ง่ายขึ้นเมื่อคลิกช่อง Input
         document.querySelectorAll('input[type="number"]').forEach(input => {
             input.addEventListener('focus', function() {
                 if(this.value === '0') this.value = '';
